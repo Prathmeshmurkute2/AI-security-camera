@@ -75,3 +75,10 @@ ACTIVITY_SITTING = "sitting"
 ACTIVITY_WALKING = "walking"
 ACTIVITY_FALL_DOWN = "fall_down"
 ACTIVITY_UNKNOWN = "unknown"
+
+# --- Camera ---
+# Single hardcoded camera for now (see services/video_service.py).
+# Kept here (not on VideoService) so other modules can reference it
+# without needing to import - and thereby fully load - the video
+# pipeline (YOLO/pose models) just to compare an id.
+DEFAULT_CAMERA_ID = "Gate-1"

@@ -8,6 +8,7 @@ import Cameras from "../pages/Cameras.jsx";
 import Login from "../pages/Login.jsx";
 import Settings from "../pages/Settings.jsx";
 import Analytics from "../pages/Analytics.jsx";
+import Register from "../pages/Register.jsx";
 
 import { AuthProvider } from "../context/AuthContext";
 import RequireAuth from "../components/auth/RequireAuth";
@@ -19,7 +20,7 @@ export default function AppRoutes() {
                 <Routes>
 
                     <Route path="/login" element={<Login />} />
-
+                    <Route path="/register" element={<Register />} />
                     <Route
                         element={
                             <RequireAuth>

@@ -1,6 +1,10 @@
+from app.core.constants import SEVERITY_INFO
+
+
 class LineCrossingDetector:
     """
-    Detects when a tracked object crosses a horizontal line.
+    Detects when a tracked object crosses a horizontal line
+    (e.g. a doorway or gate threshold), and which direction.
     """
 
     def __init__(self, line_y: float):
@@ -54,6 +58,8 @@ class LineCrossingDetector:
                 events.append({
                     "track_id": track_id,
                     "event_type": "line_crossing",
+                    "severity": SEVERITY_INFO,
+                    "message": "Person crossed the line (entering)",
                     "direction": "IN",
                 })
 
@@ -66,6 +72,8 @@ class LineCrossingDetector:
                 events.append({
                     "track_id": track_id,
                     "event_type": "line_crossing",
+                    "severity": SEVERITY_INFO,
+                    "message": "Person crossed the line (leaving)",
                     "direction": "OUT",
                 })
 

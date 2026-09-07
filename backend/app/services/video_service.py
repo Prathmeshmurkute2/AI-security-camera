@@ -5,6 +5,7 @@ from datetime import datetime
 
 from app.core.config import settings
 from app.core.logger import logger
+from app.core.constants import DEFAULT_CAMERA_ID
 
 from app.analytics.intrusion import IntrusionDetector
 
@@ -30,6 +31,7 @@ from app.analytics.altercation import AltercationDetector
 from app.analytics.fall_detector import FallDetector
 from app.analytics.activity_classifier import ActivityClassifier
 from app.tracking.pose_tracker import pose_tracker
+from app.repositories.zone_repository import zone_repository
 
 class VideoService:
     """
@@ -37,16 +39,24 @@ class VideoService:
     analytics, visualization and frame streaming.
     """
 
+    CAMERA_ID = DEFAULT_CAMERA_ID
+
     def __init__(self):
         self.cap = None
         self.is_running = False
+
+        self.frame_width = None
+        self.frame_height = None
 
         self.line_crossing_detector = LineCrossingDetector(
             line_y=400
         )
 
+        # No hardcoded zone anymore - loaded from the database
+        # (see load_intrusion_zone()) once the camera starts, and
+        # kept live-updatable via update_intrusion_zone().
         self.intrusion_detector = IntrusionDetector(
-            zone=(400, 200, 900, 600)
+            zone_points=None
         )
 
         self.processing_fps = settings.PROCESSING_FPS
@@ -200,6 +210,105 @@ class VideoService:
         logger.info(
             "Video source opened successfully."
         )
+
+        self.frame_width = int(
+            self.cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0
+        )
+
+        self.frame_height = int(
+            self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0
+        )
+
+        # Some sources (certain webcams/streams) report 0 for these
+        # properties until a frame has actually been read - grab
+        # one to get real dimensions in that case.
+        if not self.frame_width or not self.frame_height:
+
+            ok, probe_frame = self.cap.read()
+
+            if ok:
+                self.frame_height, self.frame_width = probe_frame.shape[:2]
+
+                # Rewind so this frame still gets processed normally
+                self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        self.load_intrusion_zone()
+
+    def load_intrusion_zone(self):
+        """
+        Loads the active intrusion zone for this camera from the
+        database and applies it to the running detector, converting
+        the stored normalized (0.0-1.0) points to pixel coordinates
+        for the current video resolution.
+        """
+
+        if not self.frame_width or not self.frame_height:
+            logger.warning(
+                "Frame dimensions unknown - skipping zone load."
+            )
+            return
+
+        db = SessionLocal()
+
+        try:
+
+            db_zone = zone_repository.get_active_by_camera(
+                db, self.CAMERA_ID, zone_type="intrusion"
+            )
+
+            if db_zone is None:
+                self.intrusion_detector.set_zone(None)
+                return
+
+            pixel_points = [
+                (
+                    point["x"] * self.frame_width,
+                    point["y"] * self.frame_height,
+                )
+                for point in db_zone.points
+            ]
+
+            self.intrusion_detector.set_zone(pixel_points)
+
+            logger.info(
+                "Loaded intrusion zone '%s' (%d points).",
+                db_zone.name,
+                len(pixel_points),
+            )
+
+        finally:
+            db.close()
+
+    def update_intrusion_zone(self, normalized_points):
+        """
+        Live-updates the running intrusion zone without needing to
+        restart the camera - called right after a zone is
+        created/edited via the /zones API for this camera.
+
+        `normalized_points` is a list of {"x": float, "y": float}
+        (or None to clear the zone), each in the 0.0-1.0 range.
+        """
+
+        if not normalized_points:
+            self.intrusion_detector.set_zone(None)
+            return
+
+        if not self.frame_width or not self.frame_height:
+            logger.warning(
+                "Frame dimensions unknown - cannot apply zone "
+                "update until the camera has started at least once."
+            )
+            return
+
+        pixel_points = [
+            (
+                point["x"] * self.frame_width,
+                point["y"] * self.frame_height,
+            )
+            for point in normalized_points
+        ]
+
+        self.intrusion_detector.set_zone(pixel_points)
 
     def read_frame(self):
         """
@@ -471,10 +580,16 @@ class VideoService:
                         "track_id",
                         0,
                     ),
-                    camera_id="Gate-1",
+                    camera_id=self.CAMERA_ID,
                     timestamp=datetime.now(),
-                    severity=analytics_event["severity"],
-                    message=analytics_event["message"],
+                    severity=analytics_event.get(
+                        "severity",
+                        "INFO",
+                    ),
+                    message=analytics_event.get(
+                        "message",
+                        analytics_event["event_type"].replace("_", " ").title(),
+                    ),
                     metadata={
                         key: value
                         for key, value
@@ -525,7 +640,7 @@ class VideoService:
         return visualizer.draw(
             frame,
             tracked_objects,
-            restricted_zone=self.intrusion_detector.zone,
+            restricted_zone=self.intrusion_detector.zone_points,
         )
 
     # ---------------------------------------------------------

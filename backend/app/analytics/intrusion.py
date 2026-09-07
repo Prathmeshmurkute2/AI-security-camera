@@ -1,15 +1,22 @@
+import cv2
+import numpy as np
+
+
 class IntrusionDetector:
     """
     Detects when a tracked person enters a restricted zone.
+
+    The zone is an arbitrary polygon (list of (x, y) pixel points),
+    not just a rectangle - drawn by the user on the live feed and
+    persisted via the /zones API. If no zone is configured, this
+    detector is a no-op (returns no events) rather than erroring.
 
     A grace period is used because ByteTrack can temporarily
     lose a tracked object for a few frames.
     """
 
-    def __init__(self, zone, margin=10, max_missing_frames=15):
+    def __init__(self, zone_points=None, max_missing_frames=15):
 
-        self.zone = zone
-        self.margin = margin
         self.max_missing_frames = max_missing_frames
 
         # Tracks currently inside the restricted zone
@@ -18,9 +25,48 @@ class IntrusionDetector:
         # Number of consecutive frames each track has been missing
         self.missing_frames = {}
 
+        self._polygon = None
+        self.set_zone(zone_points)
+
+    def set_zone(self, zone_points):
+        """
+        `zone_points` is a list of (x, y) pixel tuples, or None to
+        disable zone checking entirely. Called both at startup and
+        live, whenever the zone is edited/saved in the UI.
+        """
+
+        if zone_points and len(zone_points) >= 3:
+            self._polygon = np.array(zone_points, dtype=np.int32)
+        else:
+            self._polygon = None
+
+        # A new/changed zone invalidates any in-progress tracking
+        # state from the old shape.
+        self.inside_tracks.clear()
+        self.missing_frames.clear()
+
+    def has_zone(self):
+        return self._polygon is not None
+
+    @property
+    def zone_points(self):
+        """
+        The current zone polygon as a list of (x, y) pixel points,
+        or None if no zone is configured. Used by the frame drawing
+        code to overlay the zone on the live stream.
+        """
+
+        if self._polygon is None:
+            return None
+
+        return self._polygon.tolist()
+
     def check(self, tracked_objects):
 
         events = []
+
+        if self._polygon is None:
+            return events
 
         current_track_ids = set()
 
@@ -115,15 +161,16 @@ class IntrusionDetector:
 
     def is_inside(self, x, y):
 
-        x1, y1, x2, y2 = self.zone
+        if self._polygon is None:
+            return False
 
-        margin = self.margin
-
-        return (
-            x1 + margin <= x <= x2 - margin
-            and
-            y1 + margin <= y <= y2 - margin
+        result = cv2.pointPolygonTest(
+            self._polygon,
+            (float(x), float(y)),
+            False,
         )
+
+        return result >= 0
 
     def reset(self):
         """

@@ -11,6 +11,7 @@ from app.api.routes.metrics import router as metrics_router
 from app.api.routes.websocket import router as websocket_router
 from app.api.routes.demo import router as demo_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.zones import router as zone_router
 from app.websocket.publisher import event_publisher
 
 app = FastAPI(
@@ -41,6 +42,7 @@ app.include_router(camera_router)
 app.include_router(dashboard_router)
 
 app.include_router(event_router)
+app.include_router(zone_router)
 
 @app.on_event("startup")
 async def bind_event_publisher_loop():

@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 
 
 class Visualizer:
@@ -12,23 +13,38 @@ class Visualizer:
 
         output = frame.copy()
 
-        # Draw restricted zone
-        if restricted_zone is not None:
+        # Draw restricted zone (arbitrary polygon - a numpy array of
+        # (x, y) pixel points, or None if no zone is configured)
+        if restricted_zone is not None and len(restricted_zone) >= 3:
 
-            x1, y1, x2, y2 = restricted_zone
+            polygon = np.array(restricted_zone, dtype=np.int32)
 
-            cv2.rectangle(
+            cv2.polylines(
                 output,
-                (x1, y1),
-                (x2, y2),
-                (0, 0, 255),
-                2,
+                [polygon],
+                isClosed=True,
+                color=(0, 0, 255),
+                thickness=2,
             )
+
+            overlay = output.copy()
+
+            cv2.fillPoly(
+                overlay,
+                [polygon],
+                (0, 0, 255),
+            )
+
+            cv2.addWeighted(
+                overlay, 0.15, output, 0.85, 0, output
+            )
+
+            label_x, label_y = polygon[0]
 
             cv2.putText(
                 output,
                 "RESTRICTED ZONE",
-                (x1, y1 - 10),
+                (int(label_x), max(int(label_y) - 10, 20)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 (0, 0, 255),
